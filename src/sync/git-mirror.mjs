@@ -14,6 +14,7 @@
 import http from 'isomorphic-git/http/node';
 import git from 'isomorphic-git';
 import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, rmSync, statSync, openSync, writeSync, closeSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, dirname, relative } from 'node:path';
 import { syncRepoPath, configPath, conflictsPath } from '../storage/paths.mjs';
 import { resolveConflict } from './conflict-resolver.mjs';
@@ -124,7 +125,10 @@ export async function pullMirror({ dir = syncRepoPath() } = {}) {
           imported++;
           continue;
         }
-        if (Number(incoming.lamport || 0) === Number(existing.lamport || 0)) continue;
+        // Always run the resolver — equal lamports do NOT imply equal content.
+        // Two machines with clock-skew can land on the same lamport for
+        // different writes; the resolver's `arraysWouldBeLost` check is the
+        // right place to short-circuit truly-identical content.
         const { resolution, merged, conflict } = resolveConflict(existing, incoming);
         if (conflict) {
           appendConflict(conflict);
@@ -177,23 +181,58 @@ function readJsonOrEmpty(p) {
   try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return {}; }
 }
 
+function gitConfigGet(key) {
+  // spawnSync (no shell) instead of execSync — matches the rest of the codebase
+  // and avoids any PATH/shell injection vector if `key` ever becomes user-derived.
+  const r = spawnSync('git', ['config', '--global', key], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 1000,
+  });
+  if (r.status !== 0) return null;
+  return (r.stdout || '').trim() || null;
+}
+
 function defaultAuthor() {
-  return { name: process.env.SHADOWBRAIN_AUTHOR_NAME || 'shadowbrain', email: process.env.SHADOWBRAIN_AUTHOR_EMAIL || 'sync@shadowbrain.local' };
+  return {
+    name: process.env.SHADOWBRAIN_AUTHOR_NAME || gitConfigGet('user.name') || 'shadowbrain-sync',
+    email: process.env.SHADOWBRAIN_AUTHOR_EMAIL || gitConfigGet('user.email') || 'sync@example.invalid',
+  };
+}
+
+// Allowlist column names — `key` cannot be parameterized in Postgres but it
+// CAN be allowlisted. Reintroducing string-concat for SQL identifiers was the
+// exact pattern the autoplan Eng review flagged; this version refuses any
+// caller that doesn't pass a known column.
+const STATE_COLUMNS = Object.freeze({
+  last_push: { value: 'last_push', stamp: 'last_push_at' },
+  last_pull: { value: 'last_pull', stamp: 'last_pull_at' },
+});
+
+function stateCols(key) {
+  const cols = STATE_COLUMNS[key];
+  if (!cols) {
+    throw new Error(`sync state column not allowed: ${key}. Allowed: ${Object.keys(STATE_COLUMNS).join(', ')}`);
+  }
+  return cols;
 }
 
 async function readState(repo, key) {
+  const cols = stateCols(key);
   const row = await repo.db.queryOne(
-    `SELECT ${key} AS v FROM sb_sync_state WHERE repo = 'global'`
+    `SELECT ${cols.value} AS v FROM sb_sync_state WHERE repo = $1`,
+    ['global']
   );
   return Number(row?.v || 0);
 }
 
 async function writeState(repo, key, value) {
+  const cols = stateCols(key);
   await repo.db.query(
-    `INSERT INTO sb_sync_state (repo, ${key}, ${key === 'last_push' ? 'last_push_at' : 'last_pull_at'})
-     VALUES ('global', $1, NOW())
-     ON CONFLICT (repo) DO UPDATE SET ${key} = EXCLUDED.${key}, ${key === 'last_push' ? 'last_push_at' : 'last_pull_at'} = NOW()`,
-    [String(value)]
+    `INSERT INTO sb_sync_state (repo, ${cols.value}, ${cols.stamp})
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (repo) DO UPDATE SET ${cols.value} = EXCLUDED.${cols.value}, ${cols.stamp} = NOW()`,
+    ['global', String(value)]
   );
 }
 

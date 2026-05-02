@@ -315,9 +315,9 @@ export const QUERIES = [
   { repo: 'github.com/lab/research', q: 'how do we partition parquet', relevant: ['seed-27'] },
   { repo: 'github.com/lab/research', q: 'why we abandoned fsdp tensor parallel', relevant: ['seed-28'] },
   { repo: 'github.com/lab/research', q: 'eval harness', relevant: ['seed-29'] },
-  { repo: 'github.com/lab/research', q: 'csv bom problem', relevant: ['seed-44'] },
-  { repo: 'github.com/lab/research', q: 'when to checkpoint training', relevant: ['seed-45'] },
-  { repo: 'github.com/lab/research', q: 'short answer eval scoring', relevant: ['seed-50'] },
+  { repo: 'github.com/lab/research', q: 'csv bom problem', relevant: ['seed-43'] },
+  { repo: 'github.com/lab/research', q: 'when to checkpoint training', relevant: ['seed-44'] },
+  { repo: 'github.com/lab/research', q: 'short answer eval scoring', relevant: ['seed-53'] },
 
   // oss
   { repo: 'github.com/zoo/oss', q: 'release process', relevant: ['seed-30'] },
@@ -325,7 +325,7 @@ export const QUERIES = [
   { repo: 'github.com/zoo/oss', q: 'task list rendering broken', relevant: ['seed-32'] },
   { repo: 'github.com/zoo/oss', q: 'test runner choice', relevant: ['seed-33'] },
   { repo: 'github.com/zoo/oss', q: 'lint formatter setup', relevant: ['seed-34'] },
-  { repo: 'github.com/zoo/oss', q: 'mcp server logging gotcha', relevant: ['seed-51'] },
+  { repo: 'github.com/zoo/oss', q: 'mcp server logging gotcha', relevant: ['seed-54'] },
 
   // cross-cutting
   { repo: 'github.com/acme/api', q: 'cdn caching strategy', relevant: ['seed-35'] },

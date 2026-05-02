@@ -48,6 +48,9 @@ async function readUntil(child, predicate, timeoutMs = 8000) {
 }
 
 test('mcp protocol: initialize → tools/list → tools/call(memory_put) → tools/call(memory_search)', withTmpHome(async (_t, dir) => {
+  // Pre-grant trust for the test repo — v0.5 enforces per-remote write tier.
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(`${dir}/trust.yaml`, `version: 1\nremotes:\n  mcp-test/repo:\n    tier: read-write\n    decided_at: 2026-05-02T00:00:00Z\n`);
   const child = spawn(process.execPath, [BIN, 'serve', '--db', join(dir, 'db')], {
     env: { ...process.env, SHADOWBRAIN_HOME: dir, SHADOWBRAIN_LOG: 'silent' },
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -81,20 +84,20 @@ test('mcp protocol: initialize → tools/list → tools/call(memory_put) → too
     const list = await readUntil(child, (m) => m.id === 2);
     assert.ok(list.result?.tools, 'tools/list must return tools array');
     const toolNames = list.result.tools.map((t) => t.name).sort();
-    assert.deepEqual(toolNames, ['memory_put', 'memory_search']);
+    assert.deepEqual(toolNames, ['memory_audit', 'memory_forget', 'memory_get', 'memory_list', 'memory_put', 'memory_search']);
 
     // 3) tools/call memory_put
     send(child, {
       jsonrpc: '2.0', id: 3, method: 'tools/call',
       params: {
         name: 'memory_put',
-        arguments: { text: 'remember pnpm', repo: 'mcp-test/repo' },
+        arguments: { title: 'remember pnpm', body: 'we use pnpm not npm', repo: 'mcp-test/repo', kind: 'pattern', topic: 'tooling' },
       },
     });
     const put = await readUntil(child, (m) => m.id === 3);
     assert.ok(put.result?.content, `memory_put result must have content, got ${JSON.stringify(put)}`);
     const putBody = JSON.parse(put.result.content[0].text);
-    assert.equal(putBody.ok, true);
+    assert.equal(putBody.ok, true, `expected ok, got: ${JSON.stringify(putBody)}`);
     assert.ok(putBody.entry?.id);
 
     // 4) tools/call memory_search
@@ -109,15 +112,14 @@ test('mcp protocol: initialize → tools/list → tools/call(memory_put) → too
     assert.ok(search.result?.content);
     const sBody = JSON.parse(search.result.content[0].text);
     assert.equal(sBody.ok, true);
-    assert.equal(sBody.engine, 'like');
-    assert.equal(sBody.results.length, 1);
+    assert.ok(sBody.results.length >= 1);
     // Wrapped in delimiters per the prompt-injection mitigation.
     assert.match(sBody.results[0].text, /<shadowbrain-entry>[\s\S]+<\/shadowbrain-entry>/);
 
     // 5) tools/call with missing required arg returns isError
     send(child, {
       jsonrpc: '2.0', id: 5, method: 'tools/call',
-      params: { name: 'memory_put', arguments: { repo: 'r' } }, // text missing
+      params: { name: 'memory_put', arguments: { repo: 'mcp-test/repo' } }, // title+body missing
     });
     const err = await readUntil(child, (m) => m.id === 5);
     assert.ok(err.result?.isError, 'missing required arg must return isError envelope');

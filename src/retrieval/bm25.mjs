@@ -14,12 +14,31 @@ const STOP = new Set([
   'we','they','them','their','our','your','my','me','us','them','if','then','than',
 ]);
 
+/**
+ * Light stemming. Strips common English suffixes — `s`, `es`, `ing`, `ed`,
+ * `ly` — when the resulting stem is at least 3 chars. Avoids stripping when
+ * it would alter a known short token (e.g. "is" stays "is"). This is a
+ * deliberately tiny stemmer; we don't pull in Porter because the gain over
+ * suffix-strip is small for our query shapes (codebase notes, not prose).
+ */
+export function stem(t) {
+  if (!t || t.length <= 3) return t;
+  if (t.endsWith('ies') && t.length > 4) return t.slice(0, -3) + 'y';
+  if (t.endsWith('ing') && t.length > 5) return t.slice(0, -3);
+  if (t.endsWith('ed') && t.length > 4) return t.slice(0, -2);
+  if (t.endsWith('ly') && t.length > 4) return t.slice(0, -2);
+  if (t.endsWith('es') && t.length > 4) return t.slice(0, -2);
+  if (t.endsWith('s') && !t.endsWith('ss') && t.length > 3) return t.slice(0, -1);
+  return t;
+}
+
 export function tokenize(text) {
   if (!text) return [];
   return text
     .toLowerCase()
     .split(/[^a-z0-9_]+/)
-    .filter((t) => t && t.length > 1 && !STOP.has(t));
+    .filter((t) => t && t.length > 1 && !STOP.has(t))
+    .map(stem);
 }
 
 /**

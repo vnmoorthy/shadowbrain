@@ -1,0 +1,63 @@
+{
+  "name": "shadowbrain",
+  "version": "0.1.0",
+  "description": "Shared memory for Claude Code sessions over MCP. Local-first, MIT.",
+  "type": "module",
+  "bin": {
+    "shadowbrain": "./bin/shadowbrain.mjs"
+  },
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./mcp": "./src/mcp/server.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "!src/_deferred/",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "test": "node --test --test-reporter=spec 'test/unit/**/*.test.mjs' 'test/integration/**/*.test.mjs'",
+    "test:unit": "node --test 'test/unit/**/*.test.mjs'",
+    "test:integration": "node --test 'test/integration/**/*.test.mjs'",
+    "test:e2e": "node --test 'test/e2e/**/*.test.mjs'",
+    "lint": "biome check src test",
+    "lint:fix": "biome check --write src test",
+    "format": "biome format --write src test",
+    "doctor": "node bin/shadowbrain.mjs doctor",
+    "build": "echo 'no build step — pure ESM'",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "memory",
+    "agent",
+    "claude-code",
+    "ai",
+    "shadowbrain"
+  ],
+  "author": "Moorthy V",
+  "license": "MIT",
+  "homepage": "https://github.com/vnmoorthy/shadowbrain",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vnmoorthy/shadowbrain.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vnmoorthy/shadowbrain/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@electric-sql/pglite": "^0.2.14",
+    "cac": "^6.7.14"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4"
+  }
+}

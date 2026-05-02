@@ -16,7 +16,7 @@ Shadowbrain is a **shared, queryable memory layer** that any MCP-compatible codi
 │  Layer 2: Storage Backend                                │
 │  src/storage/{pglite,postgres,repository}.mjs            │
 │  Pluggable: PGLite (default) or Postgres 14+             │
-│  Single-writer flock at ~/.shadowbrain/.lock             │
+│  Single-writer flock at ~/.shadowbrain/serve.lock        │
 └──────────────────────────────────────────────────────────┘
                             │
 ┌──────────────────────────────────────────────────────────┐

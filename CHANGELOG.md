@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Sync state SQL hardening.** `src/sync/git-mirror.mjs` `readState`/`writeState` no longer interpolate column names. A `STATE_COLUMNS` allowlist gates `last_push` / `last_pull`; unknown keys throw. Not currently exploitable (callers hardcoded), but reintroduced the exact pattern the autoplan Eng review flagged in the v0.5 draft of `repository.mjs`.
+- **`gitConfigGet` no longer shells out.** `execSync('git config ...')` replaced with `spawnSync` plus a 1-second timeout. Drops the `/bin/sh` dependency and matches the rest of the codebase.
+- **Sync no longer drops array data on equal-lamport divergence.** Pull loop always invokes `resolveConflict`. Two machines with clock skew can produce equal lamports for divergent writes; the resolver's `arraysWouldBeLost` check is the right place to short-circuit truly-identical content.
+- **Malformed `trust.yaml` no longer fails silently.** `loadTrustStore` warns via `log.warn` when the YAML parser throws. The fail-closed behavior (writes denied) is unchanged; the user now learns about the corruption instead of seeing every write fail with no signal.
+
 ## [0.5.0] — 2026-05-02
 
 The full v0.5 surface from the spec. v0.5 ships alongside v0.1 in a single binary; the slim v0.1 path remains supported.

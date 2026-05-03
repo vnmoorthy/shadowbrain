@@ -129,6 +129,13 @@ export class Repository {
       // 'now' so observers see the touch. For sync writes, only update if the
       // incoming entry has a higher lamport — peers should converge upward,
       // never silently regress to a local clock.
+      //
+      // Peer convergence note (codex finding #3): two peers writing identical
+      // content under the same coordinates produce different ids. Each peer's
+      // row keeps its own id; only `lamport` converges. The "loser" peer's
+      // .json file lives on in the sync git repo as a phantom, but the
+      // idempotency check turns subsequent pulls into no-ops once both peers
+      // have stabilized. See test/integration/peer-convergence.test.mjs.
       if (fromSync) {
         const incomingLamport = Number(entry.lamport ?? 0);
         const existingLamport = Number(existing.lamport ?? 0);

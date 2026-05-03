@@ -1,10 +1,9 @@
 // `shadowbrain repo [list|rename|scope]`
-import { Repository } from '../storage/repository.mjs';
+import { withLockedRepo } from './_with-locked-repo.mjs';
 import { canonicalizeRemote } from '../trust/policy.mjs';
 
 export async function cmdRepo(action = 'list', _arg, opts = {}) {
-  const repo = await Repository.open();
-  try {
+  return await withLockedRepo({}, async (repo) => {
     if (action === 'list') {
       const repos = await repo.listRepos();
       for (const r of repos) {
@@ -25,7 +24,5 @@ export async function cmdRepo(action = 'list', _arg, opts = {}) {
     }
     process.stderr.write(`unknown action: ${action}\n`);
     return 2;
-  } finally {
-    await repo.close();
-  }
+  });
 }

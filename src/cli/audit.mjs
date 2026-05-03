@@ -1,9 +1,8 @@
 // `shadowbrain audit` — list all entries with provenance and warnings.
-import { Repository } from '../storage/repository.mjs';
+import { withLockedRepo } from './_with-locked-repo.mjs';
 
 export async function cmdAudit(opts = {}) {
-  const repo = await Repository.open();
-  try {
+  return await withLockedRepo({}, async (repo) => {
     const filter = {};
     if (opts.repo) filter.repo = opts.repo;
     if (opts.since) filter.since = opts.since;
@@ -20,10 +19,8 @@ export async function cmdAudit(opts = {}) {
     }
     if (warnCount > 0) process.stdout.write(`\n${warnCount} entries have warnings — run with --json to see them.\n`);
     if (opts.json) process.stdout.write(JSON.stringify(entries, null, 2));
-  } finally {
-    await repo.close();
-  }
-  return 0;
+    return 0;
+  });
 }
 
 function shorten(s, n) {

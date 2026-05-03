@@ -2,7 +2,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { Repository } from '../storage/repository.mjs';
+import { withLockedRepo } from './_with-locked-repo.mjs';
 
 const conflictsPath = () => join(homedir(), '.shadowbrain', 'conflicts.jsonl');
 
@@ -43,8 +43,7 @@ export async function cmdConflicts(action = 'list', id, opts = {}) {
       return 1;
     }
     const c = items[idx];
-    const repoStore = await Repository.open();
-    try {
+    return await withLockedRepo({}, async (repoStore) => {
       let chosen;
       if (opts.keep === 'mine') chosen = c.mine;
       else if (opts.keep === 'theirs') chosen = c.theirs;
@@ -53,15 +52,15 @@ export async function cmdConflicts(action = 'list', id, opts = {}) {
         process.stderr.write(`invalid --keep value: ${opts.keep}\n`);
         return 2;
       }
-      await repoStore.put(chosen, { skipScans: true });
+      // fromSync: chosen entry already carries the resolver's canonical
+      // lamport — must not be re-stamped with the local clock.
+      await repoStore.put(chosen, { fromSync: true });
       c.resolved = { keep: opts.keep, resolved_at: new Date().toISOString() };
       items[idx] = c;
       writeFileSync(path, items.map((x) => JSON.stringify(x)).join('\n') + '\n');
       process.stdout.write(`resolved ${id} → ${opts.keep}\n`);
-    } finally {
-      await repoStore.close();
-    }
-    return 0;
+      return 0;
+    });
   }
 
   process.stderr.write(`unknown action: ${action}\n`);

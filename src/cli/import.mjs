@@ -1,7 +1,7 @@
 // `shadowbrain import <file>` — load entries from JSONL or YAML.
 import { readFileSync } from 'node:fs';
 import { parse as yamlParse } from 'yaml';
-import { Repository } from '../storage/repository.mjs';
+import { withLockedRepo } from './_with-locked-repo.mjs';
 
 export async function cmdImport(file, opts = {}) {
   const text = readFileSync(file, 'utf8');
@@ -11,16 +11,16 @@ export async function cmdImport(file, opts = {}) {
   } else {
     entries = text.split('\n').filter(Boolean).map((l) => JSON.parse(l));
   }
-  const repo = await Repository.open();
-  let count = 0;
-  try {
+  return await withLockedRepo({}, async (repo) => {
+    let count = 0;
     for (const e of entries) {
-      await repo.put(e, { skipScans: true, fromImport: true, merge: !!opts.merge });
+      // fromSync: preserve any peer-originated lamport / last_modified_at.
+      // Imports are conceptually a peer-replay — restamping with the local
+      // clock would let imported entries push back as fresh writes.
+      await repo.put(e, { fromSync: true });
       count++;
     }
     process.stdout.write(`imported ${count} entries from ${file}\n`);
-  } finally {
-    await repo.close();
-  }
-  return 0;
+    return 0;
+  });
 }

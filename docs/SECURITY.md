@@ -23,6 +23,8 @@ Shadowbrain stores memory you bring into the agent's context. The threat model h
 
 Every `memory_put` runs a regex bank against title+body. Patterns include AWS keys, Google service accounts, GitHub PATs, OpenAI/Anthropic keys, Stripe keys, JWTs, PEM blocks, npm tokens, Slack tokens, Twilio SIDs, SendGrid keys, plus a high-entropy heuristic near `key=`/`token=`/`secret=` markers. Detected → `SECRET_DETECTED` error.
 
+`shadowbrain import` runs the same scan pipeline by default, refusing entries that fail and reporting them in stderr. The shared scan code lives in `src/ingest/scan-pipeline.mjs`; both write paths (MCP and CLI import) call it, so a malicious `.jsonl` cannot bypass the scanners by going through `import` instead of `memory_put`. Use `import --unsafe` only for restoring backups you trust bit-for-bit.
+
 If you think you have a false positive, it's not. The right move is to redact and retry.
 
 ### Prompt injection via stored memory → delimiter wrap + tool description

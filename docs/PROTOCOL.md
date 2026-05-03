@@ -146,6 +146,25 @@ Two writers, same id, different content:
 
 If array fields differ across versions (e.g. tags, files, symbols, supersedes, warnings), we **union-merge** them and keep the winner's scalars. The merged `lamport` stays anchored to `max(mine, theirs)` — bumping past it would make merged results incorrectly outrank later, equally-original writes. Every merge is logged to `~/.shadowbrain/conflicts.jsonl` for `shadowbrain conflicts review`.
 
+## Sync writes vs fresh writes — the `fromSync` flag
+
+`Repository.put(input, opts)` accepts `opts.fromSync`. The flag controls whether `lamport` and `last_modified_at` are stamped with the local clock or preserved from the input:
+
+- **Fresh write (`fromSync` not set)** — the call originated locally (MCP `memory_put`, CLI helpers acting on user input). `lamport = nextLamport()` and `last_modified_at = now()` overwrite whatever was on the input. This is the default and the right behavior for any user-originated write.
+- **Sync write (`fromSync: true`)** — the call replays a peer-originated entry (`pullMirror`, `import`, `conflicts resolve`). The peer's lamport and `last_modified_at` are preserved. `setLamport(incoming.lamport)` hydrates the local monotonic counter so subsequent local writes still sort after the imported entry.
+
+Without this flag, every pulled entry gets re-stamped with the local clock and then re-pushed as a fresh write, defeating Lamport correctness across peers. The `pullMirror` loop in `src/sync/git-mirror.mjs` passes `fromSync: true` at every `repo.put` call site.
+
+**Idempotency-hit reconciliation:** when a sync write hits the content-hash idempotency branch (same content under the same coordinates, different id), the existing row's lamport upgrades to the incoming value iff `incoming.lamport > existing.lamport`. This is how peers converge upward without ever regressing to an older lamport.
+
+## Peer-id convergence (and phantom files)
+
+Two peers writing identical content under the same coordinates land on different ids — UUIDv7 is generated at `memory_put` time and there's no way for peers to predict each other's ids. The idempotency check returns the local row, so each peer keeps its own id locally.
+
+After at most two sync round-trips, both peers' rows agree on `lamport` (the higher value). Subsequent pulls become idempotent no-ops.
+
+The remaining limitation: each peer's `.json` file (with the loser peer's id) lives on in the sync git repo as a **phantom** — a file that doesn't have a local entry on the peer that "lost" the convergence. The phantom files don't affect retrieval or correctness; they're dead bytes in the sync repo. A future cleanup command can prune them; for now they're documented and tested in `test/integration/peer-convergence.test.mjs`.
+
 ## Schema versioning
 
 `sb_meta.schema_version` tracks the applied migration version. The migrator (`src/storage/migrations.mjs`) is forward-only and idempotent — `ADD COLUMN IF NOT EXISTS`, etc. v0.5 ships at version 5.

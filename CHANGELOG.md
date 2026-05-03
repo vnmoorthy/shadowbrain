@@ -6,12 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- **`shadowbrain import --unsafe` flag.** `import` now runs the same secret/PII/adversarial scans as `memory_put` by default and refuses entries that fail. Use `--unsafe` only when restoring a backup you trust bit-for-bit. Loud stderr warning when set.
+
 ### Fixed
 
 - **Sync state SQL hardening.** `src/sync/git-mirror.mjs` `readState`/`writeState` no longer interpolate column names. A `STATE_COLUMNS` allowlist gates `last_push` / `last_pull`; unknown keys throw. Not currently exploitable (callers hardcoded), but reintroduced the exact pattern the autoplan Eng review flagged in the v0.5 draft of `repository.mjs`.
 - **`gitConfigGet` no longer shells out.** `execSync('git config ...')` replaced with `spawnSync` plus a 1-second timeout. Drops the `/bin/sh` dependency and matches the rest of the codebase.
 - **Sync no longer drops array data on equal-lamport divergence.** Pull loop always invokes `resolveConflict`. Two machines with clock skew can produce equal lamports for divergent writes; the resolver's `arraysWouldBeLost` check is the right place to short-circuit truly-identical content.
 - **Malformed `trust.yaml` no longer fails silently.** `loadTrustStore` warns via `log.warn` when the YAML parser throws. The fail-closed behavior (writes denied) is unchanged; the user now learns about the corruption instead of seeing every write fail with no signal.
+- **`zod` declared explicitly in `dependencies`.** Was only present transitively via `@modelcontextprotocol/sdk` — a future SDK upgrade or different install resolution would have broken `npm install -g shadowbrain` at the first call into validators.
+- **Sync correctness: peer Lamport timestamps preserved on pull.** `Repository.put` now accepts `{ fromSync: true }`. `pullMirror` passes it on every imported entry, so peer-originated rows keep the peer's Lamport and `last_modified_at` instead of getting re-stamped with the local clock and pushed back as fresh writes. Idempotent sync hits also upgrade lamport when incoming > existing (peers converge upward, never silently regress).
+- **CLI commands acquire the writer lock.** `audit`, `conflicts resolve`, `decay`, `export`, `import`, `repo`, `sync pull/push/daemon` now go through `withLockedRepo()` (or an explicit `acquireDbLock`). Running them while `shadowbrain serve` is up no longer corrupts the WAL — the second process exits with `DB_LOCKED`.
+- **Import scanner gate (security).** `shadowbrain import` previously bypassed the secret/PII/adversarial scanners that the MCP layer runs. A malicious `.jsonl` could plant credentials or prompt-injection that auto-synced via `sync push`. Imports now run the shared `runScans` pipeline by default; refused entries are reported and the command exits non-zero. Use `--unsafe` to bypass for trusted backups.
+
+### For contributors
+
+- **`fromSync` semantics documented in `Repository.put`.** Two peers writing identical content under the same coordinates land on different ids; only `lamport` converges. Each peer's `.json` file lives on as a phantom in the sync git repo (annoyance, not corruption). See `test/integration/peer-convergence.test.mjs` for the two-round-trip stabilization test.
+- **New shared module `src/ingest/scan-pipeline.mjs`.** `runScans(entry, opts)` throws `SECRET_DETECTED` / `PII_DETECTED` / `BodyTooLarge` and returns adversarial-content warnings. `mcp/server.mjs` and `cli/import.mjs` both call it — DRY across the two write paths.
+- **+18 regression tests.** `sync-lamport-preserve` (4), `cli-lock-acquisition` (3), `import-scanner-gate` (7), `peer-convergence` (1) — plus the prior CHANGELOG fixes already had their own. 107/107 pass.
 
 ## [0.5.0] — 2026-05-02
 

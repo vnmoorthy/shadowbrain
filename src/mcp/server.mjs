@@ -31,15 +31,12 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { openRepo } from '../storage/repository.mjs';
 import { hybridRetrieve } from '../retrieval/ranker.mjs';
-import { scanForSecrets } from '../ingest/secrets.mjs';
-import { scanForPII } from '../ingest/pii.mjs';
-import { detectAdversarial } from '../ingest/enricher.mjs';
+import { runScans } from '../ingest/scan-pipeline.mjs';
 import { normalize } from '../ingest/normalizer.mjs';
 import { canonicalizeRemote, canonicalAllowed } from '../trust/policy.mjs';
 import { loadTrustStore } from '../trust/store.mjs';
 import { recordToolEvent } from '../observe.mjs';
-import { ShadowbrainError, InvalidArgError, BodyTooLargeError } from '../cli/errors.mjs';
-import { MAX_BODY_TOKENS, approximateTokenCount } from '../schema/validators.mjs';
+import { ShadowbrainError, InvalidArgError } from '../cli/errors.mjs';
 import { VERSION, NAME } from '../version.mjs';
 import { log } from '../log.mjs';
 
@@ -241,34 +238,10 @@ async function handlePut(repository, args) {
   const repoId = canonicalize(args.repo || detectRepo() || 'default');
   await assertAllowed(repoId, 'write');
 
-  const tokens = approximateTokenCount(body);
-  if (tokens > MAX_BODY_TOKENS) {
-    throw new BodyTooLargeError({ approxTokens: tokens, max: MAX_BODY_TOKENS });
-  }
-  const sec = scanForSecrets(`${title}\n${body}`);
-  if (sec.length > 0) {
-    const err = new ShadowbrainError({
-      code: 'SECRET_DETECTED',
-      message: `refused: secret-shaped data detected (${sec.map((s) => s.kind).join(', ')})`,
-      fix: `redact secrets before calling memory_put — never store credentials in shared memory`,
-      docsUrl: 'https://github.com/vnmoorthy/shadowbrain/blob/main/docs/SECURITY.md',
-    });
-    err.findings = sec;
-    throw err;
-  }
   const piiPolicy = await loadPiiPolicyFor(repoId);
-  const pii = scanForPII(`${title}\n${body}`, piiPolicy);
-  const blocking = pii.filter((p) => p.severity === 'block');
-  if (blocking.length > 0) {
-    const err = new ShadowbrainError({
-      code: 'PII_DETECTED',
-      message: `refused: PII detected (${blocking.map((p) => p.kind).join(', ')})`,
-      fix: `redact PII or override per-repo policy via 'shadowbrain trust set <repo> --tier read-write' (PII policy is independent)`,
-      docsUrl: 'https://github.com/vnmoorthy/shadowbrain/blob/main/docs/SECURITY.md',
-    });
-    err.findings = blocking;
-    throw err;
-  }
+  // Run the shared scan pipeline. Throws SECRET_DETECTED / PII_DETECTED /
+  // BodyTooLargeError on hits. Returns adversarial-content warnings to merge.
+  const { warnings: advWarnings } = runScans({ title, body }, { piiPolicy });
 
   const norm = normalize({
     repo: repoId,
@@ -280,9 +253,7 @@ async function handlePut(repository, args) {
     confidence: typeof args.confidence === 'number' ? args.confidence : undefined,
     context: args.context || {},
   });
-  // Adversarial enrichment becomes warning, not block.
-  const adv = detectAdversarial(norm);
-  norm.warnings = [...(norm.warnings || []), ...adv.map((a) => a.message)];
+  norm.warnings = [...(norm.warnings || []), ...advWarnings];
 
   const entry = await repository.put(norm);
   return {

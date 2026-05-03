@@ -90,6 +90,7 @@ export async function run(argv) {
 
   cli.command('import <file>', 'import entries from a JSONL or YAML file')
     .option('--merge', 'merge with existing rather than replace')
+    .option('--unsafe', 'SKIP secret/PII/adversarial scans — only for trusted backups')
     .action((file, opts) => guard(() => cmdImport(file, opts)));
 
   cli.command('repo [action] [arg]', 'manage repos (list | rename)')

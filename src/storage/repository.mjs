@@ -105,30 +105,57 @@ export class Repository {
   /**
    * Insert or update. Idempotent by content_hash within (repo, scope, topic, kind).
    * @param {object} input - Entry fields. newEntry() fills defaults.
+   * @param {object} [opts]
+   * @param {boolean} [opts.fromSync] - When true, preserve incoming lamport AND
+   *   last_modified_at instead of restamping with the local clock. Used by
+   *   pullMirror, conflict resolution, and import — peer-originated writes
+   *   carry the peer's Lamport state and our merge logic depends on it.
    * @returns {Promise<object>} the persisted entry.
    */
-  async put(input) {
+  async put(input, opts = {}) {
+    const fromSync = opts.fromSync === true;
     let entry = newEntry(input);
     const hash = entryContentHash(entry);
 
     // Idempotency: same content under the same coordinates → no duplicate.
     const existing = await this.db.queryOne(
-      `SELECT id FROM sb_v01_entries
+      `SELECT id, lamport FROM sb_v01_entries
        WHERE content_hash = $1 AND repo = $2 AND COALESCE(scope, '') = COALESCE($3, '')
          AND topic = $4 AND kind = $5 AND deleted = FALSE`,
       [hash, entry.repo, entry.scope, entry.topic, entry.kind]
     );
     if (existing) {
-      const now = new Date().toISOString();
-      await this.db.query(
-        `UPDATE sb_v01_entries SET last_modified_at = $1 WHERE id = $2`,
-        [now, existing.id]
-      );
+      // Idempotent hit. For fresh writes (not sync), bump last_modified_at to
+      // 'now' so observers see the touch. For sync writes, only update if the
+      // incoming entry has a higher lamport — peers should converge upward,
+      // never silently regress to a local clock.
+      if (fromSync) {
+        const incomingLamport = Number(entry.lamport ?? 0);
+        const existingLamport = Number(existing.lamport ?? 0);
+        if (incomingLamport > existingLamport) {
+          await this.db.query(
+            `UPDATE sb_v01_entries SET lamport = $1, last_modified_at = $2 WHERE id = $3`,
+            [String(incomingLamport), entry.last_modified_at, existing.id]
+          );
+        }
+      } else {
+        const now = new Date().toISOString();
+        await this.db.query(
+          `UPDATE sb_v01_entries SET last_modified_at = $1 WHERE id = $2`,
+          [now, existing.id]
+        );
+      }
       return await this.get(existing.id);
     }
 
-    entry.lamport = nextLamport();
-    entry.last_modified_at = new Date().toISOString();
+    if (!fromSync) {
+      entry.lamport = nextLamport();
+      entry.last_modified_at = new Date().toISOString();
+    } else {
+      // Hydrate the local Lamport monotonic counter so subsequent local writes
+      // sort after this peer-originated entry.
+      setLamport(Number(entry.lamport ?? 0));
+    }
 
     await this.db.transaction(async (tx) => {
       await tx.query(

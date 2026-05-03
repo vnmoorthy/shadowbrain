@@ -121,7 +121,11 @@ export async function pullMirror({ dir = syncRepoPath() } = {}) {
         const incoming = JSON.parse(readFileSync(f, 'utf8'));
         const existing = await repo.get(incoming.id);
         if (!existing) {
-          await repo.put(incoming);
+          // fromSync: true preserves the peer's lamport + last_modified_at;
+          // without it, repo.put would re-stamp every pulled entry with our
+          // local clock and then push it back as a fresh write — defeating
+          // Lamport correctness across peers.
+          await repo.put(incoming, { fromSync: true });
           imported++;
           continue;
         }
@@ -135,7 +139,9 @@ export async function pullMirror({ dir = syncRepoPath() } = {}) {
           conflicted++;
         }
         if (resolution === 'theirs' || resolution === 'merge') {
-          await repo.put(merged);
+          // The resolver already picked the canonical lamport (max of mine,
+          // theirs); preserve it through the write.
+          await repo.put(merged, { fromSync: true });
           imported++;
         }
       } catch (err) {
